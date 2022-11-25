@@ -43,7 +43,7 @@ fi
 # This will be overwritten by selecting any option in microarchitecture script
 # Source files: https://github.com/xanmod/linux/tree/5.17/CONFIGS/xanmod/gcc
 if [ -z ${_config+x} ]; then
-  _config=config_x86-64-v2
+  _config=config_x86-64-v3
 fi
 
 # Compress modules with ZSTD (to save disk space)
@@ -72,7 +72,7 @@ fi
 
 pkgbase=linux-xanmod-rog
 _major=6.0
-pkgver=${_major}.7
+pkgver=${_major}.9
 _branch=6.x
 xanmod=1
 pkgrel=${xanmod}
@@ -139,7 +139,8 @@ source=("https://cdn.kernel.org/pub/linux/kernel/v${_branch}/linux-${_major}.tar
         0001-asus-wmi-Expand-support-of-GPU-fan-to-read-RPM-and-l.patch
         #0001-platform-x86-asus-wmi-Add-safety-checks-to-dgpu-egpu.patch
         0001-platform-x86-asus-wmi-Add-support-for-ROG-X16-tablet.patch
-        
+	0001-Revert-perf-x86-intel-Fix-unchecked-MSR-access-error.patch        
+
         
         "sys-kernel_arch-sources-g14_files-0047-asus-nb-wmi-Add-tablet_mode_sw-lid-flip.patch"
         "sys-kernel_arch-sources-g14_files-0048-asus-nb-wmi-fix-tablet_mode_sw_int.patch"
@@ -162,7 +163,7 @@ done
 
 sha256sums=('5c2443a5538de52688efb55c27ab0539c1f5eb58c0cfd16a2b9fbb08fd81788e'
             'SKIP'
-            'ac005da87d858425fb21046d9f77a54274d232793d9f4de913e1395dddffc0b9'
+            '02f2c1c67b15a6d0590a4bddafc4364d9ad40b3595f6a004534497235799292b'
             '05d8119dcf06b20d585cef21b5560c8e53c6c97b6fddef7f0afe8c545734b64a'
             'dda2e928f3b02c28e71d4e99f90b499b4c99a265d30fceec7dc1dd7082afc285'
             '40e4c300be6681ab3b30042eb4bb5981081ce029b2bdd4773a38b4a9f65e943e'
@@ -184,6 +185,7 @@ sha256sums=('5c2443a5538de52688efb55c27ab0539c1f5eb58c0cfd16a2b9fbb08fd81788e'
             'abd1d8def25f7fae0d5590c7fd36ea4dcc479d16d268615d8b3d95c8e8446d44'
             '9efcef7aab8094ed3596cba872527d6e838c760ba4f4c5b7b1586a963b71d576'
             'ddcd442b780bffde86c51373d6e24c77ecc890375cd0be361d2de9f26826f845'
+            '6739a42bf9d233cb58ae9a69c3f78959175de695e2d4a7e66bb9984fcf5c0f7e'
             '15e912a66e4bbce1cf0450f1dc6610653df29df8dd6d5426f9c1b039490436c8'
             'e9e4b03b836e1a86a2a5dc70b0d5512348eb19742f83bee794a3ab7d91bd41cf'
             '982a31e47d3d586789e1b3cdda25f75e3b71d810e7494202089b8f2cef7c0ef9')
@@ -227,6 +229,67 @@ prepare() {
   # Enable IKCONFIG following Arch's philosophy
   scripts/config --enable CONFIG_IKCONFIG \
                  --enable CONFIG_IKCONFIG_PROC
+  # Vfio  
+
+  scripts/config --disable CONFIG_VFIO
+  scripts/config --disable CONFIG_VFIO_IOMMU_TYPE1
+  scripts/config --disable CONFIG_VFIO_VIRQFD
+  scripts/config --disable CONFIG_VFIO_NOIOMMU
+  scripts/config --disable CONFIG_VFIO_PCI_CORE
+  scripts/config --disable CONFIG_VFIO_PCI_MMAP
+  scripts/config --disable CONFIG_VFIO_PCI_INTX
+  scripts/config --disable CONFIG_VFIO_PCI
+
+  # Rog
+   
+  scripts/config --enable CONFIG_PINCTRL_AMD
+  scripts/config --enable CONFIG_X86_AMD_PSTATE
+  scripts/config --module CONFIG_AMD_PMC
+
+  scripts/config --disable CONFIG_MODULE_COMPRESS_NONE \
+                 --enable CONFIG_MODULE_COMPRESS_ZSTD
+
+  ## SET default LRU parameters
+  scripts/config --enable CONFIG_LRU_GEN
+  scripts/config --enable CONFIG_LRU_GEN_ENABLED
+  scripts/config --disable CONFIG_LRU_GEN_STATS
+  scripts/config --set-val CONFIG_NR_LRU_GENS 7
+  scripts/config --set-val CONFIG_TIERS_PER_GEN 4
+
+  # DISABLE not need modules on ROG laptops
+  # XXX: I'm going to make an opinionated decision here and save everyone some compilation time
+  # XXX: on drivers almost no-one is going to use; if you need any of theese turn them on in myconfig
+  scripts/config  --disable CONFIG_INFINIBAND \
+                  --disable CONFIG_DRM_NOUVEAU \
+                  --disable CONFIG_PCMCIA_WL3501 \
+                  --disable CONFIG_PCMCIA_RAYCS \
+                  --disable CONFIG_IWL3945 \
+                  --disable CONFIG_IWL4965 \
+                  --disable CONFIG_IPW2200 \
+                  --disable CONFIG_IPW2100 \
+                  --disable CONFIG_FB_NVIDIA \
+                  --disable CONFIG_SENSORS_ASUS_EC \
+                  --disable CONFIG_SENSORS_ASUS_WMI_EC
+
+  # select slightly more sane block device driver options; NVMe really should be built in 
+  scripts/config  --disable CONFIG_RAPIDIO \
+                  --module CONFIG_CDROM \
+                  --disable CONFIG_PARIDE \
+
+  # bake in s0ix debugging parameters so we get useful problem reports re: suspend
+  scripts/config  --enable CONFIG_CMDLINE_BOOL \
+                  --set-str CONFIG_CMDLINE "makepkgplaceholderyolo" \
+                  --disable CMDLINE_OVERRIDE
+
+  # HACK: forcibly fixup CONFIG_CMDLINE here as using scripts/config mangles escaped quotes
+  sed -i 's#makepkgplaceholderyolo#ibt=off pm_debug_messages amd_pmc.dyndbg=\\"+p\\" acpi.dyndbg=\\"file drivers/acpi/x86/s2idle.c +p\\"#' .config
+
+  # Note the double escaped quotes above, sed strips one; the final result in .config needs to contain single slash
+  # escaped quotes (eg: `CONFIG_CMDLINE="foo.dyndbg=\"+p\""`) to avoid dyndbg parse errors at boot. This is impossible
+  # with the current kernel config script.
+
+
+
 
   # User set. See at the top of this file
   if [ "$use_tracers" = "n" ]; then
