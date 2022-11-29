@@ -197,6 +197,12 @@ export KBUILD_BUILD_TIMESTAMP=${KBUILD_BUILD_TIMESTAMP:-$(date -Ru${SOURCE_DATE_
 prepare() {
   cd linux-${_major}
 
+  # Apply VFIO fix
+  echo Applying experimental VFIO patch.
+  wget https://raw.githubusercontent.com/Kinsteen/win10-gpu-passthrough/main/pat_patch.diff
+  mv pat_patch.diff ..
+  patch -p0 < ../pat_patch.diff arch/x86/mm/pat/memtype_interval.c
+
   # Apply Xanmod patch
   patch -Np1 -i ../patch-${pkgver}-xanmod${xanmod}
 
